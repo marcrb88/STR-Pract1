@@ -10,7 +10,7 @@
 using namespace std::chrono;
 
 PwmOut buzzer(D5);
-LightSensor lightSensor(A0, buzzer);
+LightSensor lightSensor(A0);
 PwmOut led(D3);
 InterruptIn button(D4);
 Timer t;
@@ -42,6 +42,8 @@ void RSI_button () {
    buttonPressed = true;
 }
 
+
+
 Grove_LCD_RGB_Backlight lcd(D14,D15);
 
 void setLCDMessage(string row1, string row2, int rgb[3])
@@ -58,12 +60,13 @@ void setLCDMessage(string row1, string row2, int rgb[3])
     lcd.print(output2);
 }
 
+// main() runs in its own thread in the OS
 int main() {
     uint16_t counts;
     float vout, mean;
 
     //periods
-    buzzer.period(0.01);
+    buzzer.period(0.10);
 
     button.rise(&RSI_button);
     
@@ -74,9 +77,8 @@ int main() {
             mean = calculate_Mean();
             string message = "Mitjana lux:";
             string message2 = std::to_string(mean) + "%";
-
+            
             setLCDMessage(message, message2, (int[3]) {255, 0, 0});
-
             ThisThread::sleep_for(3s);
 
             button.enable_irq();
@@ -85,17 +87,23 @@ int main() {
 
         counts = lightSensor.read();
         vout = lightSensor.calculate_Vout(counts);
+   
         lux = lightSensor.calculate_percentage(vout);
+        if (vout < 0)
+            buzzer.write(0.25);
+        
         float compensation = 100 - lux;
 
         led.write(compensation/100); 
 
         string message = "Lux: " + std::to_string(lux) + "%";
         string message2 = "Comp: " + std::to_string(compensation) + "%";
-        
+ 
+
         ThisThread::sleep_for(200ms);
         setLCDMessage(message, message2, (int[3]) {255, 255, 255});
-
+      
         buzzer.write(0.0);
     }
+
 }

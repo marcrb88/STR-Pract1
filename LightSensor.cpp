@@ -10,9 +10,8 @@ const float R1 = 10.0;
 
 uint16_t _counts;
 
-LightSensor::LightSensor(AnalogIn lightsensor, PwmOut buzzer) : _lightsensor(lightsensor), _buzzer(buzzer) {
+LightSensor::LightSensor(AnalogIn lightsensor) : _lightsensor(lightsensor) {
  _lightsensor = lightsensor;
- _buzzer = buzzer;
 }
 
 uint16_t LightSensor::read() {
@@ -27,16 +26,13 @@ float LightSensor::calculate_Vout(uint16_t counts) {
 
 float LightSensor::calculate_Lux(float vout) {
     float lux = ((((VREF*lUXREL)*vout) - lUXREL) / R1);
-    if (lux < 70 ) {
+    if (lux < 0) {
         lux = 0;
-        _buzzer.write(0.5);
     }
-
     return lux;
 }
 
 float LightSensor::calculate_percentage(float vout) {
+
     return calculate_Lux(vout)* 100 / MAX_INTENSITY;
-
-
 }

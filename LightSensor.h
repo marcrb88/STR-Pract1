@@ -3,7 +3,7 @@
 
 class LightSensor {
 public:
-  LightSensor(AnalogIn pin, PwmOut buzzer);
+  LightSensor(AnalogIn pin);
   uint16_t read();
   float calculate_Vout(uint16_t counts);
   float calculate_Lux(float vout);
@@ -11,6 +11,5 @@ public:
 
 private:
   AnalogIn _lightsensor;
-  PwmOut _buzzer;
   uint16_t _counts;
 };
