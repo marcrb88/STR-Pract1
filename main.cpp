@@ -43,7 +43,21 @@ void RSI_button () {
 }
 
 Grove_LCD_RGB_Backlight lcd(D14,D15);
-// main() runs in its own thread in the OS
+
+void setLCDMessage(string row1, string row2, int rgb[3])
+{
+    char output [row1.length() + 1];
+    char output2 [row2.length() + 1];
+    strcpy(output, row1.c_str());
+    strcpy(output2, row2.c_str());
+
+    lcd.setRGB(rgb[0], rgb[1], rgb[2]);
+    lcd.clear();
+    lcd.print(output);
+    lcd.locate(0, 1);
+    lcd.print(output2);
+}
+
 int main() {
     uint16_t counts;
     float vout, mean;
@@ -60,18 +74,9 @@ int main() {
             mean = calculate_Mean();
             string message = "Mitjana lux:";
             string message2 = std::to_string(mean) + "%";
-            
-            char output [message.length() + 1];
-            char output2 [message2.length() + 1];
 
-            strcpy(output, message.c_str());
-            strcpy(output2, message2.c_str());
+            setLCDMessage(message, message2, (int[3]) {255, 0, 0});
 
-            lcd.setRGB(255, 0, 0);
-            lcd.clear();
-            lcd.print(output);
-            lcd.locate(0,1);
-            lcd.print(output2);
             ThisThread::sleep_for(3s);
 
             button.enable_irq();
@@ -87,19 +92,10 @@ int main() {
 
         string message = "Lux: " + std::to_string(lux) + "%";
         string message2 = "Comp: " + std::to_string(compensation) + "%";
- 
-        char output [message.length() + 1];
-        char output2 [message2.length() + 1];
-        strcpy(output, message.c_str());
-        strcpy(output2, message2.c_str());
+        
         ThisThread::sleep_for(200ms);
-        lcd.setRGB(255, 255, 255);
-        lcd.clear();
-        lcd.print(output);
-        lcd.locate(0,1);
-        lcd.print(output2);
+        setLCDMessage(message, message2, (int[3]) {255, 255, 255});
 
         buzzer.write(0.0);
     }
-
 }
