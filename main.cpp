@@ -1,9 +1,9 @@
 #include "mbed.h"
 #include <chrono>
 #include <cstdint>
-#include "LightSensor.h"
-#include "Potentiometer.h"
-#include "Grove_LCD_RGB_Backlight.h"
+#include "lib/LightSensor.h"
+#include "lib/Potentiometer.h"
+#include "lib/Grove_LCD_RGB_Backlight.h"
 #include <cstring>
 #include <string> 
 #include <iostream>
