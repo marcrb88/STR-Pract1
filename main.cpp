@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdint>
 #include "LightSensor.h"
+#include "Potentiometer.h"
 #include "Grove_LCD_RGB_Backlight.h"
 #include <cstring>
 #include <string> 
@@ -9,10 +10,16 @@
 
 using namespace std::chrono;
 
-PwmOut buzzer(D5);
+// INPUTS
 LightSensor lightSensor(A0);
-PwmOut led(D3);
 InterruptIn button(D4);
+Potentiometer potentiometer(A3);
+
+// OUTPUTS
+PwmOut led(D3);
+PwmOut buzzer(D5);
+Grove_LCD_RGB_Backlight lcd(D14,D15);
+
 Timer t;
 float lux = 0, mean = 0;
 bool buttonPressed = false;
@@ -42,10 +49,6 @@ void RSI_button () {
    buttonPressed = true;
 }
 
-
-
-Grove_LCD_RGB_Backlight lcd(D14,D15);
-
 void setLCDMessage(string row1, string row2, int rgb[3])
 {
     char output [row1.length() + 1];
@@ -71,13 +74,12 @@ int main() {
     button.rise(&RSI_button);
     
     while (true) {
-
         if (buttonPressed) {
 
             mean = calculate_Mean();
             string message = "Mitjana lux:";
             string message2 = std::to_string(mean) + "%";
-            
+
             setLCDMessage(message, message2, (int[3]) {255, 0, 0});
             ThisThread::sleep_for(3s);
 
@@ -93,6 +95,9 @@ int main() {
             buzzer.write(0.25);
         
         float compensation = 100 - lux;
+        float max_compensation = potentiometer.read() * 100;
+
+        if (compensation > max_compensation) compensation = max_compensation;
 
         led.write(compensation/100); 
 
