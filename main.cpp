@@ -8,6 +8,8 @@
 #include <string> 
 #include <iostream>
 
+#define DEADLINE 200
+
 using namespace std::chrono;
 
 // INPUTS
@@ -28,6 +30,7 @@ const float Rl = 10.0;
 const float VREF = 3.3;
 const float luxRel = 500.0;
 const float ADCRES = 65535.0;
+uint16_t start;
 
 float calculate_Mean() {
     float add = 0;
@@ -42,6 +45,11 @@ float calculate_Mean() {
     t.reset();
 
     return add/tics;
+}
+
+bool is_in_deadline() {
+    
+    return (Kernel::get_ms_count() - start) > DEADLINE ?  false : true;
 }
 
 void RSI_button () {
@@ -66,49 +74,52 @@ void setLCDMessage(string row1, string row2, int rgb[3])
 // main() runs in its own thread in the OS
 int main() {
     uint16_t counts;
-    float vout, mean;
+    float vout, mean, compensation, max_compensation;
 
     //periods
     buzzer.period(0.10);
 
     button.rise(&RSI_button);
-    
+
     while (true) {
-        if (buttonPressed) {
+        start = Kernel::get_ms_count();
 
-            mean = calculate_Mean();
-            string message = "Mitjana lux:";
-            string message2 = std::to_string(mean) + "%";
+            if (buttonPressed) {
 
-            setLCDMessage(message, message2, (int[3]) {255, 0, 0});
-            ThisThread::sleep_for(3s);
+                mean = calculate_Mean();
+                string message = "Mitjana lux:";
+                string message2 = std::to_string(mean) + "%";
 
-            button.enable_irq();
-            buttonPressed = false;
-        }
+                setLCDMessage(message, message2, (int[3]) {255, 0, 0});
+                ThisThread::sleep_for(3s);
 
-        counts = lightSensor.read();
-        vout = lightSensor.calculate_Vout(counts);
+                button.enable_irq();
+                buttonPressed = false;
+            }
+
+            counts = lightSensor.read();
+            vout = lightSensor.calculate_Vout(counts);
+
+            if (vout < 0) buzzer.write(0.25);
    
-        lux = lightSensor.calculate_percentage(vout);
-        if (vout < 0)
-            buzzer.write(0.25);
-        
-        float compensation = 100 - lux;
-        float max_compensation = potentiometer.read() * 100;
+            lux = lightSensor.calculate_percentage(vout);
 
-        if (compensation > max_compensation) compensation = max_compensation;
+            compensation = 100 - lux;
+            max_compensation = potentiometer.read() * 100;
+        if (is_in_deadline()) {
+            if (max_compensation < 0) buzzer.write(0.25);
 
-        led.write(compensation/100); 
+            if (compensation > max_compensation) compensation = max_compensation;
 
-        string message = "Lux: " + std::to_string(lux) + "%";
-        string message2 = "Comp: " + std::to_string(compensation) + "%";
+            led.write(compensation/100); 
+
+            string message = "Lux: " + std::to_string(lux) + "%";
+            string message2 = "Comp: " + std::to_string(compensation) + "%";
  
 
-        ThisThread::sleep_for(200ms);
-        setLCDMessage(message, message2, (int[3]) {255, 255, 255});
-      
-        buzzer.write(0.0);
+            ThisThread::sleep_for(200ms);
+            setLCDMessage(message, message2, (int[3]) {255, 255, 255});
+        }
     }
 
 }
