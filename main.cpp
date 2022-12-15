@@ -32,35 +32,14 @@ const float Rl = 10.0;
 const float VREF = 3.3;
 const float luxRel = 500.0;
 const float ADCRES = 65535.0;
-int interrupts;
+bool interrupt = false;
 uint64_t mainStart, meanStart, lcdStart, mainRemain, now, interruptStart;
 string lcd_message[2];
 
 
-float calculate_Mean() {
-    meanStart = Kernel::get_ms_count();
-    float add = 0;
-    int tics = 0;
-
-    while ((Kernel::get_ms_count() - now) < 10000){
-        tics++;
-        add += lux;
-    }
-    
-    printf("Temps calcul mitjana: %llu\n", Kernel::get_ms_count() - meanStart);
-    return add/tics;
-}
 
 bool is_in_deadline() {
     return (Kernel::get_ms_count() - mainStart) <= DEADLINE;
-}
-
-void RSI_button () {
-    if (Kernel::get_ms_count() - mainStart > 35) {
-        button.disable_irq();
-        buttonPressed = true;
-    }
-    interrupts ++;
 }
 
 void set_LCD_message(string row1, string row2, int rgb[3])
@@ -77,7 +56,7 @@ void set_LCD_message(string row1, string row2, int rgb[3])
     lcd.locate(0, 1);
     lcd.print(output2);
 
-    printf("Temps calcul print: %llu\n", Kernel::get_ms_count() - lcdStart);
+    printf("\n\nTemps calcul print: %llu\n", Kernel::get_ms_count() - lcdStart);
 }
 
 void set_LCD_alertMessage(string row0, string row1 = "") {
@@ -97,6 +76,38 @@ void alert(string message = "") {
     error_handled = false;
 }
 
+void calculate_Mean() {
+    meanStart = Kernel::get_ms_count();
+    float add = 0;
+    int tics = 0;
+
+    while ((Kernel::get_ms_count() - now) < 10000){
+        tics++;
+        add += lux;
+    }
+    
+    printf("Temps calcul mitjana: %llu\n", Kernel::get_ms_count() - meanStart);
+
+    string message = "Mitjana lux:";
+    string message2 = std::to_string(mean) + "%";
+    set_LCD_message(message, message2, (int[3]) {0, 255, 0});
+    
+    printf("Temps calcul RSI: %llu \n", Kernel::get_ms_count() - interruptStart);
+
+}
+
+void RSI_button () {
+    interruptStart = Kernel::get_ms_count();
+    now = Kernel::get_ms_count();
+
+    if (Kernel::get_ms_count() - mainStart > 39) { 
+        button.disable_irq();
+        calculate_Mean();
+    } else {
+        interrupt = true;  //vol dir que ara mateix no ho pot fer perque no ha acabat al main, ho fara quan acabi el main
+    }
+}
+
 
 int main() {
     uint16_t counts;
@@ -108,20 +119,20 @@ int main() {
 
     while (true) {
         mainStart = Kernel::get_ms_count();
-
-        while (interrupts > 0 || buttonPressed) {
-            interruptStart = Kernel::get_ms_count();
-            now = Kernel::get_ms_count();
-            mean = calculate_Mean();
-            string message = "Mitjana lux:";
-            string message2 = std::to_string(mean) + "%";
-            set_LCD_message(message, message2, (int[3]) {0, 255, 0});
-
-            interrupts --;
-            buttonPressed = false;
-            button.enable_irq();
-        }
         
+        /*if (interrupt) {
+                interruptStart = Kernel::get_ms_count();
+                now = Kernel::get_ms_count();
+                printf("executant RSI\n");
+                mean = calculate_Mean();
+                string message = "Mitjana lux:";
+                string message2 = std::to_string(mean) + "%";
+                set_LCD_message(message, message2, (int[3]) {0, 255, 0});
+
+                interrupt = false;
+                button.enable_irq();
+            }
+        */
         counts = lightSensor.read();
         vout = lightSensor.calculate_Vout(counts);
 
@@ -148,8 +159,14 @@ int main() {
 
             mainRemain = DEADLINE - (Kernel::get_ms_count() - mainStart);
             printf ("Temps restant: %llu \n", mainRemain);
-            if (is_in_deadline()) 
+
+            if (interrupt) RSI_button();
+
+            if (is_in_deadline()) {
+                printf("Consumint temps restant\n\n");
                 ThisThread::sleep_for(mainRemain);
+            }
+
         }
         else alert("OUT OF DEADLINE!");
     }
