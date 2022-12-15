@@ -26,21 +26,19 @@ Grove_LCD_RGB_Backlight lcd(D14,D15);
 Timer t;
 float lux = 0, mean = 0;
 bool buttonPressed = false;
-bool display = false;
 bool error_handled = false;
 
 const float Rl = 10.0;
 const float VREF = 3.3;
 const float luxRel = 500.0;
 const float ADCRES = 65535.0;
-uint16_t start;
+int interrupts;
+uint64_t mainStart, meanStart, lcdStart, mainRemain, now, interruptStart;
 string lcd_message[2];
-Thread thread;
-uint64_t now;
 
-Mutex lcd_mutex;
 
 float calculate_Mean() {
+    meanStart = Kernel::get_ms_count();
     float add = 0;
     int tics = 0;
 
@@ -48,78 +46,55 @@ float calculate_Mean() {
         tics++;
         add += lux;
     }
-  
+    
+    printf("Temps calcul mitjana: %llu\n", Kernel::get_ms_count() - meanStart);
     return add/tics;
 }
 
 bool is_in_deadline() {
-    return (Kernel::get_ms_count() - start) <= DEADLINE;
+    return (Kernel::get_ms_count() - mainStart) <= DEADLINE;
 }
 
 void RSI_button () {
-   button.disable_irq();
-   buttonPressed = true;
+    if (Kernel::get_ms_count() - mainStart > 35) {
+        button.disable_irq();
+        buttonPressed = true;
+    }
+    interrupts ++;
 }
 
-void lcdBackgroundJob()
+void set_LCD_message(string row1, string row2, int rgb[3])
 {
-    chrono::milliseconds sleep_time = 300ms;
-    int rgb[3] = {255, 255, 255};
+    lcdStart = Kernel::get_ms_count();
+    char output [row1.length() + 1];
+    char output2 [row2.length() + 1];
+    strcpy(output, row1.c_str());
+    strcpy(output2, row2.c_str());
 
-    while (true) {
-        printf("\nHOLA2 \n");
-        lcd_mutex.lock();
-        char output [lcd_message[0].length() + 1];
-        char output2 [lcd_message[1].length() + 1];
-        strcpy(output, lcd_message[0].c_str());
-        strcpy(output2, lcd_message[1].c_str());
-        lcd_mutex.unlock();
-        
-        if (buttonPressed && display) {
-            buttonPressed = false;
-            display = false;
+    lcd.setRGB(rgb[0], rgb[1], rgb[2]);
+    lcd.clear();
+    lcd.print(output);
+    lcd.locate(0, 1);
+    lcd.print(output2);
 
-            rgb[1] = 255;
-            rgb[2] = 0;
-            sleep_time = 3s;
-        } else if (error_handled) {
-            rgb[1] = 0;
-            rgb[2] = 0;
-            sleep_time = ERROR_INFO_TIME;
-        } else {
-            rgb[1] = 255;
-            rgb[2] = 255;
-            sleep_time = 300ms;
-        }
-
-        lcd.setRGB(rgb[0], rgb[1], rgb[2]);
-        lcd.clear();
-        lcd.print(output);
-        lcd.locate(0, 1);
-        lcd.print(output2);
-        ThisThread::sleep_for(sleep_time);
-    }   
+    printf("Temps calcul print: %llu\n", Kernel::get_ms_count() - lcdStart);
 }
 
-void setLCDMessage(string row0, string row1 = "") {
-    lcd_mutex.lock();
+void set_LCD_alertMessage(string row0, string row1 = "") {
     lcd_message[0] = row0;
     lcd_message[1] = row1;
-    lcd_mutex.unlock();
 }
 
-void alert(bool error, string message = "") {
-    error_handled = error;
+void alert(string message = "") {
+    error_handled = true;
 
-    if (error) {
-        buzzer.write(0.25);
+    buzzer.write(0.25);
 
-        setLCDMessage(message);
+    set_LCD_alertMessage(message);
 
-        ThisThread::sleep_for(ERROR_INFO_TIME);
-        buzzer.write(0);
-        error_handled = false;
-    }
+    ThisThread::sleep_for(ERROR_INFO_TIME);
+    buzzer.write(0);
+    error_handled = false;
 }
 
 
@@ -131,51 +106,51 @@ int main() {
 
     button.rise(&RSI_button);
 
-    thread.start(lcdBackgroundJob);
-    printf("\nHOLA \n");
-
     while (true) {
-        alert(false);
-        start = Kernel::get_ms_count();
+        mainStart = Kernel::get_ms_count();
 
-        if (buttonPressed) { 
+        while (interrupts > 0 || buttonPressed) {
+            interruptStart = Kernel::get_ms_count();
             now = Kernel::get_ms_count();
-            setLCDMessage("Collecting data",
-                          "...");
-
             mean = calculate_Mean();
-            printf("\nmitjana:%f \n", mean);
-            display = true;
+            string message = "Mitjana lux:";
+            string message2 = std::to_string(mean) + "%";
+            set_LCD_message(message, message2, (int[3]) {0, 255, 0});
 
-            setLCDMessage("Mitjana lux:",
-                          std::to_string(mean) + "%");
-            ThisThread::sleep_for(2s); //escencial pel sincronisme entre main i thread, sino la variable buttonPressed mai es posara a false i tornara a fer mitjana.
+            interrupts --;
+            buttonPressed = false;
             button.enable_irq();
         }
         
         counts = lightSensor.read();
         vout = lightSensor.calculate_Vout(counts);
 
-        if (vout < 0) alert(true, "LIGHT SENSOR ERR");
+        if (vout < 0) alert("LIGHT SENSOR ERR");
    
         lux = lightSensor.calculate_percentage(vout);
-        printf("\nlux:%f \n", lux);
 
         compensation = 100 - lux;
         max_compensation = potentiometer.read() * 100;
 
         if (is_in_deadline()) {
-            if (max_compensation < 0) alert(true, "MAX COMP ERR");
+            if (max_compensation < 0) alert("MAX COMP ERR");
 
             if (compensation > max_compensation) compensation = max_compensation;
 
             led.write(compensation/100); 
 
-            setLCDMessage("Lux:  " + std::to_string(lux) + "%",
-                          "Comp: " + std::to_string(compensation) + "%");
- 
-            ThisThread::sleep_for(500ms);
+            string message = "Lux: " + std::to_string(lux) + "%";
+            string message2 = "Comp: " + std::to_string(compensation) + "%";
+            
+            set_LCD_message(message, message2, (int[3]) {255, 255, 255});
+
+            printf("Temps calcul main: %llu\n", Kernel::get_ms_count() - mainStart);
+
+            mainRemain = DEADLINE - (Kernel::get_ms_count() - mainStart);
+            printf ("Temps restant: %llu \n", mainRemain);
+            if (is_in_deadline()) 
+                ThisThread::sleep_for(mainRemain);
         }
-        else alert(true, "OUT OF DEADLINE!");
+        else alert("OUT OF DEADLINE!");
     }
 }
