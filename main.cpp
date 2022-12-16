@@ -37,7 +37,7 @@ uint64_t mainStart, meanStart, lcdStart, mainRemain, now, interruptStart;
 string lcd_message[2];
 
 // CIRCULAR QUEUE FOR MEASURED DATA
-int queue[QUEUE_SIZE];
+float queue[QUEUE_SIZE];
 int queue_index = 0;
 bool queue_full = false;
 bool should_calculate_mean = false;
@@ -186,10 +186,12 @@ int main() {
                 }
             }
 
-            mainRemain = DEADLINE - (Kernel::get_ms_count() - mainStart);
-            printf("Temps restant: %llu \n", mainRemain);
-            printf("Consumint temps restant\n\n");
-            ThisThread::sleep_for(mainRemain);
+            if (is_in_deadline()) {
+                mainRemain = DEADLINE - (Kernel::get_ms_count() - mainStart);
+                printf("Temps restant: %llu \n", mainRemain);
+                printf("Consumint temps restant\n\n");
+                ThisThread::sleep_for(mainRemain);
+            } else alert("OUT OF DEADLINE!");
         }
         else alert("OUT OF DEADLINE!");
     }
