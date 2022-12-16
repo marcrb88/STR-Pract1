@@ -8,7 +8,8 @@
 #include <string> 
 #include <iostream>
 
-#define DEADLINE 600
+#define DEADLINE 500
+#define QUEUE_SIZE 20
 #define ERROR_INFO_TIME 2s
 
 using namespace std::chrono;
@@ -36,19 +37,53 @@ bool interrupt = false;
 uint64_t mainStart, meanStart, lcdStart, mainRemain, now, interruptStart;
 string lcd_message[2];
 
+// CIRCULAR QUEUE FOR MEASURED DATA
+int queue[QUEUE_SIZE];
+int queue_index = 0;
+bool queue_full = false;
+bool should_calculate_mean = false;
 
+// LCD OUTPUT
+enum MESSAGE_TYPE {INFO, MEAN, MEASURING, ERR};
+MESSAGE_TYPE actual_message = INFO;
+int message_ticks = 0;
+int message_colors[][3] = {
+    {255, 255, 255},
+    {0, 255, 0},
+    {0, 0, 255},
+    {255, 0, 0}
+};
 
 bool is_in_deadline() {
     return (Kernel::get_ms_count() - mainStart) <= DEADLINE;
 }
 
-void set_LCD_message(string row1, string row2, int rgb[3])
+int * get_color_by_message_type(MESSAGE_TYPE type) {
+    switch (type) {
+        case INFO: {
+            return new int[3]{255, 255, 255};
+        }
+        case MEAN: {
+            return new int[3]{0, 255, 0};
+        }
+        case MEASURING: {
+            return new int[3]{0, 0, 255};
+        }
+        case ERR: {
+            return new int[3]{255, 0, 0};
+        }
+    }
+}
+
+void set_LCD_message(string row1, string row2, MESSAGE_TYPE message_type)
 {
+    int * rgb = get_color_by_message_type(message_type);
     lcdStart = Kernel::get_ms_count();
     char output [row1.length() + 1];
     char output2 [row2.length() + 1];
     strcpy(output, row1.c_str());
     strcpy(output2, row2.c_str());
+    actual_message = message_type;
 
     lcd.setRGB(rgb[0], rgb[1], rgb[2]);
     lcd.clear();
@@ -56,58 +91,51 @@ void set_LCD_message(string row1, string row2, int rgb[3])
     lcd.locate(0, 1);
     lcd.print(output2);
 
-    printf("\n\nTemps calcul print: %llu\n", Kernel::get_ms_count() - lcdStart);
+    //printf("\n\nTemps calcul print: %llu\n", Kernel::get_ms_count() - lcdStart);
 }
 
-void set_LCD_alertMessage(string row0, string row1 = "") {
-    lcd_message[0] = row0;
-    lcd_message[1] = row1;
-}
-
+/**
+ * Shows error message and activates the alarm
+ */
 void alert(string message = "") {
     error_handled = true;
 
     buzzer.write(0.25);
 
-    set_LCD_alertMessage(message);
+    message_ticks = 6;
+    actual_message = ERR;
+    set_LCD_message(message, "", ERR);
 
-    ThisThread::sleep_for(ERROR_INFO_TIME);
     buzzer.write(0);
     error_handled = false;
 }
 
 void calculate_Mean() {
     meanStart = Kernel::get_ms_count();
-    float add = 0;
-    int tics = 0;
+    mean = 0;
 
-    while ((Kernel::get_ms_count() - now) < 10000){
-        tics++;
-        add += lux;
+    for (int i = 0; i < QUEUE_SIZE; i++) {
+        mean += queue[i];
     }
-    
+    mean = mean / QUEUE_SIZE;
     printf("Temps calcul mitjana: %llu\n", Kernel::get_ms_count() - meanStart);
 
     string message = "Mitjana lux:";
     string message2 = std::to_string(mean) + "%";
-    set_LCD_message(message, message2, (int[3]) {0, 255, 0});
+    set_LCD_message(message, message2, MEAN);
+    message_ticks = 6;
+    button.enable_irq();
     
     printf("Temps calcul RSI: %llu \n", Kernel::get_ms_count() - interruptStart);
-
 }
 
+/**
+ * Disables button IRQ enables mean calculation flag.
+ */
 void RSI_button () {
-    interruptStart = Kernel::get_ms_count();
-    now = Kernel::get_ms_count();
-
-    if (Kernel::get_ms_count() - mainStart > 39) { 
-        button.disable_irq();
-        calculate_Mean();
-    } else {
-        interrupt = true;  //vol dir que ara mateix no ho pot fer perque no ha acabat al main, ho fara quan acabi el main
-    }
+    button.disable_irq();
+    should_calculate_mean = true;
 }
-
 
 int main() {
     uint16_t counts;
@@ -119,20 +147,8 @@ int main() {
 
     while (true) {
         mainStart = Kernel::get_ms_count();
-        
-        /*if (interrupt) {
-                interruptStart = Kernel::get_ms_count();
-                now = Kernel::get_ms_count();
-                printf("executant RSI\n");
-                mean = calculate_Mean();
-                string message = "Mitjana lux:";
-                string message2 = std::to_string(mean) + "%";
-                set_LCD_message(message, message2, (int[3]) {0, 255, 0});
 
-                interrupt = false;
-                button.enable_irq();
-            }
-        */
+        // DETECTAR LUMINOSITAT
         counts = lightSensor.read();
         vout = lightSensor.calculate_Vout(counts);
 
@@ -140,33 +156,50 @@ int main() {
    
         lux = lightSensor.calculate_percentage(vout);
 
+        // REGISTRE MESURES
+        queue[queue_index] = lux;
+        queue_index = (queue_index + 1) % QUEUE_SIZE;
+        if (!queue_full && queue_index == 0) queue_full = true;
+
+        // COMPENSAR LLUM
         compensation = 100 - lux;
         max_compensation = potentiometer.read() * 100;
 
-        if (is_in_deadline()) {
-            if (max_compensation < 0) alert("MAX COMP ERR");
+        if (max_compensation < 0) alert("MAX COMP ERR");
 
-            if (compensation > max_compensation) compensation = max_compensation;
+        if (compensation > max_compensation) compensation = max_compensation;
 
-            led.write(compensation/100); 
+        led.write(compensation/100); 
 
+        // ACTUALITZAR LCD
+        if (message_ticks <= 0) {
             string message = "Lux: " + std::to_string(lux) + "%";
             string message2 = "Comp: " + std::to_string(compensation) + "%";
             
-            set_LCD_message(message, message2, (int[3]) {255, 255, 255});
+            set_LCD_message(message, message2, INFO);
+        } else {
+            message_ticks--;
+        }
 
-            printf("Temps calcul main: %llu\n", Kernel::get_ms_count() - mainStart);
+        printf("Temps calcul main: %llu\n", Kernel::get_ms_count() - mainStart);
+
+        if (is_in_deadline()) {
+            if (should_calculate_mean) {
+                if (queue_full) {
+                    calculate_Mean();
+                    should_calculate_mean = false;
+                } else {
+                    string message = "Collecting data";
+                    string message2 = "...";
+                    set_LCD_message(message, message2, MEASURING);
+                    message_ticks = QUEUE_SIZE - queue_index;
+                }
+            }
 
             mainRemain = DEADLINE - (Kernel::get_ms_count() - mainStart);
             printf ("Temps restant: %llu \n", mainRemain);
-
-            if (interrupt) RSI_button();
-
-            if (is_in_deadline()) {
-                printf("Consumint temps restant\n\n");
-                ThisThread::sleep_for(mainRemain);
-            }
-
+            printf("Consumint temps restant\n\n");
+            ThisThread::sleep_for(mainRemain);
         }
         else alert("OUT OF DEADLINE!");
     }
