@@ -186,10 +186,12 @@ int main() {
                 }
             }
 
-            mainRemain = DEADLINE - (Kernel::get_ms_count() - mainStart);
-            printf("Temps restant: %llu \n", mainRemain);
-            printf("Consumint temps restant\n\n");
-            ThisThread::sleep_for(mainRemain);
+            if (is_in_deadline()) {
+                mainRemain = DEADLINE - (Kernel::get_ms_count() - mainStart);
+                printf("Temps restant: %llu \n", mainRemain);
+                printf("Consumint temps restant\n\n");
+                ThisThread::sleep_for(mainRemain);
+            } else alert("OUT OF DEADLINE!");
         }
         else alert("OUT OF DEADLINE!");
     }
