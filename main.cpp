@@ -27,7 +27,6 @@ Grove_LCD_RGB_Backlight lcd(D14,D15);
 Timer t;
 float lux = 0, mean = 0;
 bool buttonPressed = false;
-bool error_handled = false;
 
 const float Rl = 10.0;
 const float VREF = 3.3;
@@ -44,7 +43,7 @@ bool queue_full = false;
 bool should_calculate_mean = false;
 
 // LCD OUTPUT
-enum MESSAGE_TYPE {INFO, MEAN, MEASURING, ERR};
+enum MESSAGE_TYPE { INFO, MEAN, MEASURING, ERR };
 MESSAGE_TYPE actual_message = INFO;
 int message_ticks = 0;
 int message_colors[][3] = {
@@ -62,14 +61,11 @@ int * get_color_by_message_type(MESSAGE_TYPE type) {
     switch (type) {
         case INFO: {
             return new int[3]{255, 255, 255};
-        }
-        case MEAN: {
+        } case MEAN: {
             return new int[3]{0, 255, 0};
-        }
-        case MEASURING: {
+        } case MEASURING: {
             return new int[3]{0, 0, 255};
-        }
-        case ERR: {
+        } case ERR: {
             return new int[3]{255, 0, 0};
         }
     }
@@ -90,24 +86,17 @@ void set_LCD_message(string row1, string row2, MESSAGE_TYPE message_type)
     lcd.print(output);
     lcd.locate(0, 1);
     lcd.print(output2);
-
-    //printf("\n\nTemps calcul print: %llu\n", Kernel::get_ms_count() - lcdStart);
 }
 
 /**
  * Shows error message and activates the alarm
  */
 void alert(string message = "") {
-    error_handled = true;
-
     buzzer.write(0.25);
 
     message_ticks = 6;
     actual_message = ERR;
     set_LCD_message(message, "", ERR);
-
-    buzzer.write(0);
-    error_handled = false;
 }
 
 void calculate_Mean() {
@@ -125,8 +114,6 @@ void calculate_Mean() {
     set_LCD_message(message, message2, MEAN);
     message_ticks = 6;
     button.enable_irq();
-    
-    printf("Temps calcul RSI: %llu \n", Kernel::get_ms_count() - interruptStart);
 }
 
 /**
@@ -147,6 +134,9 @@ int main() {
 
     while (true) {
         mainStart = Kernel::get_ms_count();
+
+        // DESHABILITEM EL BUZZER
+        buzzer.write(0);
 
         // DETECTAR LUMINOSITAT
         counts = lightSensor.read();
@@ -171,19 +161,19 @@ int main() {
 
         led.write(compensation/100); 
 
-        // ACTUALITZAR LCD
-        if (message_ticks <= 0) {
-            string message = "Lux: " + std::to_string(lux) + "%";
-            string message2 = "Comp: " + std::to_string(compensation) + "%";
-            
-            set_LCD_message(message, message2, INFO);
-        } else {
-            message_ticks--;
-        }
-
         printf("Temps calcul main: %llu\n", Kernel::get_ms_count() - mainStart);
 
         if (is_in_deadline()) {
+            // ACTUALITZAR LCD
+            if (message_ticks <= 0) {
+                string message = "Lux: " + std::to_string(lux) + "%";
+                string message2 = "Comp: " + std::to_string(compensation) + "%";
+                
+                set_LCD_message(message, message2, INFO);
+            } else {
+                message_ticks--;
+            }
+
             if (should_calculate_mean) {
                 if (queue_full) {
                     calculate_Mean();
@@ -197,7 +187,7 @@ int main() {
             }
 
             mainRemain = DEADLINE - (Kernel::get_ms_count() - mainStart);
-            printf ("Temps restant: %llu \n", mainRemain);
+            printf("Temps restant: %llu \n", mainRemain);
             printf("Consumint temps restant\n\n");
             ThisThread::sleep_for(mainRemain);
         }
